@@ -15,7 +15,7 @@ export async function POST(request: Request, props: PairRouteProps) {
     const params = await props.params;
     const body = (await request.json()) as { token?: string };
 
-    return NextResponse.json(pairFindTaRoom(params.code, body.token ?? ""));
+    return NextResponse.json(await pairFindTaRoom(params.code, body.token ?? ""));
   } catch (error) {
     return findTaApiError(error);
   }

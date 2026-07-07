@@ -16,7 +16,7 @@ export async function POST(request: Request, props: HarmonyRouteProps) {
     const params = await props.params;
     const body = (await request.json()) as { answers?: unknown };
 
-    return NextResponse.json(submitFindTaHarmonyChallenge(params.code, params.participantId, body));
+    return NextResponse.json(await submitFindTaHarmonyChallenge(params.code, params.participantId, body));
   } catch (error) {
     return findTaApiError(error);
   }

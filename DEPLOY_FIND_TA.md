@@ -1,5 +1,7 @@
 # Deploy Find TA on a VPS
 
+For Vercel deployment, use `DEPLOY_VERCEL.md` instead.
+
 Target domain:
 
 - `https://find-ta.hofeu.org`
@@ -46,7 +48,7 @@ sudo mkdir -p /var/www /var/lib/heartfire-find-ta/.local-data
 sudo chown -R "$USER":"$USER" /var/lib/heartfire-find-ta
 
 cd /var/www
-git clone https://github.com/enciyang/heartfire_web_find_ta.git heartfire_web_find_ta
+git clone https://github.com/yeyile8896/heartfire_web_find_ta.git heartfire_web_find_ta
 cd /var/www/heartfire_web_find_ta
 
 npm install

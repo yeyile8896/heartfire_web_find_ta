@@ -20,7 +20,7 @@ export async function POST(request: Request, props: PuzzleRouteProps) {
     const params = await props.params;
     const body = (await request.json()) as PuzzleRequest;
 
-    return NextResponse.json(markFindTaScripturePuzzleComplete(params.code, body.token ?? "", params.pairId));
+    return NextResponse.json(await markFindTaScripturePuzzleComplete(params.code, body.token ?? "", params.pairId));
   } catch (error) {
     return findTaApiError(error);
   }

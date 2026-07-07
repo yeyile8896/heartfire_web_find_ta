@@ -15,7 +15,7 @@ export async function GET(request: Request, props: HostRouteProps) {
     const params = await props.params;
     const token = new URL(request.url).searchParams.get("token") ?? "";
 
-    return NextResponse.json(getHostRoomView(params.code, token));
+    return NextResponse.json(await getHostRoomView(params.code, token));
   } catch (error) {
     return findTaApiError(error);
   }

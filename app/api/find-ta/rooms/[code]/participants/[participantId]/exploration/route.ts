@@ -16,7 +16,7 @@ export async function POST(request: Request, props: ExplorationRouteProps) {
     const params = await props.params;
     const body = (await request.json()) as { caption?: unknown; photoDataUrl?: unknown };
 
-    return NextResponse.json(submitFindTaExplorationChallenge(params.code, params.participantId, body));
+    return NextResponse.json(await submitFindTaExplorationChallenge(params.code, params.participantId, body));
   } catch (error) {
     return findTaApiError(error);
   }

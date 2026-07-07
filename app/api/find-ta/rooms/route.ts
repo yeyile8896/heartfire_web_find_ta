@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const room = createFindTaRoom();
+    const room = await createFindTaRoom();
     const origin = new URL(request.url).origin;
 
     return NextResponse.json({

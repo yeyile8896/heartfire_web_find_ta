@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Redis } from "@upstash/redis";
 import { randomBytes, randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -91,16 +92,17 @@ type PersistedRoomMemory = {
   rooms?: RoomRecord[];
 };
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __heartfireFindTaRooms: RoomMemory | undefined;
-}
-
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_DATA_DIR = process.env.FIND_TA_DATA_DIR || join(process.cwd(), ".local-data");
 const ROOM_DATA_FILE = join(ROOM_DATA_DIR, "find-ta-rooms.json");
+const ROOM_REDIS_KEY = process.env.FIND_TA_REDIS_KEY || "heartfire:find-ta:rooms";
+const ROOM_LOCK_KEY = `${ROOM_REDIS_KEY}:lock`;
+const LOCK_TTL_MS = 5000;
+const LOCK_WAIT_MS = 5000;
 const TARGET_PARTICIPANTS = 60;
 const TARGET_GROUP_SIZE = 4;
+
+let redisClient: Redis | null | undefined;
 
 const HARMONY_QUESTION_POOL: FindTaHarmonyQuestion[] = [
   { id: "drink", prompt: "现在最想喝什么？", left: "咖啡", right: "奶茶" },
@@ -140,55 +142,154 @@ const EXPLORATION_TASK_POOL: FindTaExplorationTask[] = [
   }
 ];
 
-function loadRoomMemory(): RoomMemory {
+function parseRoomMemory(value: unknown): RoomMemory {
   const rooms = new Map<string, RoomRecord>();
+  let data = value;
 
-  if (!existsSync(ROOM_DATA_FILE)) {
+  if (typeof value === "string") {
+    try {
+      data = JSON.parse(value) as PersistedRoomMemory;
+    } catch {
+      return { rooms };
+    }
+  }
+
+  if (!data || typeof data !== "object") {
     return { rooms };
   }
 
-  try {
-    const data = JSON.parse(readFileSync(ROOM_DATA_FILE, "utf8")) as PersistedRoomMemory;
-
-    for (const room of data.rooms ?? []) {
-      if (
-        room &&
-        typeof room.code === "string" &&
-        typeof room.hostToken === "string" &&
-        room.participants &&
-        typeof room.participants === "object" &&
-        Array.isArray(room.pairs)
-      ) {
-        rooms.set(room.code.trim().toUpperCase(), room);
-      }
+  for (const room of (data as PersistedRoomMemory).rooms ?? []) {
+    if (
+      room &&
+      typeof room.code === "string" &&
+      typeof room.hostToken === "string" &&
+      room.participants &&
+      typeof room.participants === "object" &&
+      Array.isArray(room.pairs)
+    ) {
+      rooms.set(room.code.trim().toUpperCase(), room);
     }
-  } catch {
-    return { rooms };
   }
 
   return { rooms };
 }
 
-function saveRoomMemory(nextMemory: RoomMemory) {
-  mkdirSync(ROOM_DATA_DIR, { recursive: true });
-  writeFileSync(
-    ROOM_DATA_FILE,
-    JSON.stringify(
-      {
-        rooms: Array.from(nextMemory.rooms.values())
-      },
-      null,
-      2
-    )
-  );
+function loadFileRoomMemory(): RoomMemory {
+  if (!existsSync(ROOM_DATA_FILE)) {
+    return { rooms: new Map() };
+  }
+
+  try {
+    return parseRoomMemory(JSON.parse(readFileSync(ROOM_DATA_FILE, "utf8")) as PersistedRoomMemory);
+  } catch {
+    return { rooms: new Map() };
+  }
 }
 
-const memory: RoomMemory = globalThis.__heartfireFindTaRooms ?? loadRoomMemory();
+function getRedisClient() {
+  if (redisClient !== undefined) {
+    return redisClient;
+  }
 
-globalThis.__heartfireFindTaRooms = memory;
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    redisClient = null;
+    return redisClient;
+  }
 
-if (memory.rooms.size > 0) {
-  saveRoomMemory(memory);
+  redisClient = Redis.fromEnv();
+  return redisClient;
+}
+
+async function loadRoomMemory(): Promise<RoomMemory> {
+  const redis = getRedisClient();
+
+  if (redis) {
+    const data = await redis.get<PersistedRoomMemory | string>(ROOM_REDIS_KEY);
+    return parseRoomMemory(data);
+  }
+
+  return loadFileRoomMemory();
+}
+
+async function saveRoomMemory(nextMemory: RoomMemory) {
+  const persisted: PersistedRoomMemory = {
+    rooms: Array.from(nextMemory.rooms.values())
+  };
+  const redis = getRedisClient();
+
+  if (redis) {
+    await redis.set(ROOM_REDIS_KEY, persisted);
+    return;
+  }
+
+  if (process.env.VERCEL === "1") {
+    throw new Error("Find TA persistent storage is not configured. Add Upstash Redis environment variables.");
+  }
+
+  mkdirSync(ROOM_DATA_DIR, { recursive: true });
+  writeFileSync(ROOM_DATA_FILE, JSON.stringify(persisted, null, 2));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function withRedisRoomLock<T>(callback: () => Promise<T>) {
+  const redis = getRedisClient();
+
+  if (!redis) {
+    return callback();
+  }
+
+  const token = randomUUID();
+  const deadline = Date.now() + LOCK_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    const locked = await redis.set(ROOM_LOCK_KEY, token, { nx: true, px: LOCK_TTL_MS });
+
+    if (locked) {
+      try {
+        return await callback();
+      } finally {
+        const currentToken = await redis.get<string>(ROOM_LOCK_KEY);
+
+        if (currentToken === token) {
+          await redis.del(ROOM_LOCK_KEY);
+        }
+      }
+    }
+
+    await delay(75);
+  }
+
+  throw new Error("Find TA room storage is busy. Please retry.");
+}
+
+async function withRoomMemory<T>(
+  callback: (nextMemory: RoomMemory) => T | Promise<T>,
+  options: { save?: boolean } = {}
+) {
+  const shouldSave = Boolean(options.save);
+
+  if (shouldSave && getRedisClient()) {
+    return withRedisRoomLock(async () => {
+      const nextMemory = await loadRoomMemory();
+      const result = await callback(nextMemory);
+      await saveRoomMemory(nextMemory);
+      return result;
+    });
+  }
+
+  const nextMemory = await loadRoomMemory();
+  const result = await callback(nextMemory);
+
+  if (shouldSave) {
+    await saveRoomMemory(nextMemory);
+  }
+
+  return result;
 }
 
 export class FindTaRoomError extends Error {
@@ -445,9 +546,9 @@ function toHostParticipant(room: RoomRecord, participant: ParticipantRecord): Fi
   };
 }
 
-function getRoomOrThrow(code: string) {
+function getRoomOrThrow(nextMemory: RoomMemory, code: string) {
   const normalizedCode = normalizeRoomCode(code);
-  const room = memory.rooms.get(normalizedCode);
+  const room = nextMemory.rooms.get(normalizedCode);
 
   if (!room) {
     throw new FindTaRoomError("没有找到这个房间，请确认房间码。", 404);
@@ -589,35 +690,38 @@ function makeGroupMemberSets(participantIds: string[]) {
   return groups.filter((group) => group.length > 0);
 }
 
-export function createFindTaRoom() {
-  let code = makeRoomCode();
+export async function createFindTaRoom() {
+  return withRoomMemory(
+    (nextMemory) => {
+      let code = makeRoomCode();
 
-  while (memory.rooms.has(code)) {
-    code = makeRoomCode();
-  }
+      while (nextMemory.rooms.has(code)) {
+        code = makeRoomCode();
+      }
 
-  const room: RoomRecord = {
-    code,
-    createdAt: new Date().toISOString(),
-    hostToken: makeHostToken(),
-    pairs: [],
-    participants: {},
-    round: 0,
-    status: "waiting"
-  };
+      const room: RoomRecord = {
+        code,
+        createdAt: new Date().toISOString(),
+        hostToken: makeHostToken(),
+        pairs: [],
+        participants: {},
+        round: 0,
+        status: "waiting"
+      };
 
-  memory.rooms.set(code, room);
-  saveRoomMemory(memory);
+      nextMemory.rooms.set(code, room);
 
-  return getHostRoomView(code, room.hostToken);
+      return makeHostRoomView(room, room.hostToken);
+    },
+    { save: true }
+  );
 }
 
-export function getRoomSummary(code: string) {
-  return makeSummary(getRoomOrThrow(code));
+export async function getRoomSummary(code: string) {
+  return withRoomMemory((nextMemory) => makeSummary(getRoomOrThrow(nextMemory, code)));
 }
 
-export function getFindTaLobbyView(code: string): FindTaLobbyView {
-  const room = getRoomOrThrow(code);
+function makeFindTaLobbyView(room: RoomRecord): FindTaLobbyView {
   const participants = Object.values(room.participants).sort((left, right) =>
     left.joinedAt.localeCompare(right.joinedAt)
   );
@@ -752,25 +856,31 @@ export function getFindTaLobbyView(code: string): FindTaLobbyView {
   };
 }
 
-export function joinFindTaRoom(code: string, input: Partial<FindTaParticipantInput>) {
-  const room = getRoomOrThrow(code);
-  const participant = sanitizeParticipantInput(input);
-  const id = randomUUID();
-
-  room.participants[id] = {
-    ...participant,
-    id,
-    joinedAt: new Date().toISOString(),
-    roomCode: room.code
-  };
-
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, id);
+export async function getFindTaLobbyView(code: string): Promise<FindTaLobbyView> {
+  return withRoomMemory((nextMemory) => makeFindTaLobbyView(getRoomOrThrow(nextMemory, code)));
 }
 
-export function getParticipantView(code: string, participantId: string): FindTaParticipantView {
-  const room = getRoomOrThrow(code);
+export async function joinFindTaRoom(code: string, input: Partial<FindTaParticipantInput>) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const participant = sanitizeParticipantInput(input);
+      const id = randomUUID();
+
+      room.participants[id] = {
+        ...participant,
+        id,
+        joinedAt: new Date().toISOString(),
+        roomCode: room.code
+      };
+
+      return makeParticipantView(room, id);
+    },
+    { save: true }
+  );
+}
+
+function makeParticipantView(room: RoomRecord, participantId: string): FindTaParticipantView {
   const participant = room.participants[participantId];
 
   if (!participant) {
@@ -809,8 +919,11 @@ export function getParticipantView(code: string, participantId: string): FindTaP
   };
 }
 
-export function getHostRoomView(code: string, token: string): FindTaHostRoomView {
-  const room = getRoomOrThrow(code);
+export async function getParticipantView(code: string, participantId: string): Promise<FindTaParticipantView> {
+  return withRoomMemory((nextMemory) => makeParticipantView(getRoomOrThrow(nextMemory, code), participantId));
+}
+
+function makeHostRoomView(room: RoomRecord, token: string): FindTaHostRoomView {
   requireHost(room, token);
 
   const participants = Object.values(room.participants)
@@ -843,9 +956,15 @@ export function getHostRoomView(code: string, token: string): FindTaHostRoomView
   };
 }
 
-export function pairFindTaRoom(code: string, token: string) {
-  const room = getRoomOrThrow(code);
-  requireHost(room, token);
+export async function getHostRoomView(code: string, token: string): Promise<FindTaHostRoomView> {
+  return withRoomMemory((nextMemory) => makeHostRoomView(getRoomOrThrow(nextMemory, code), token));
+}
+
+export async function pairFindTaRoom(code: string, token: string) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      requireHost(room, token);
 
   const participantIds = Object.keys(room.participants);
 
@@ -870,14 +989,17 @@ export function pairFindTaRoom(code: string, token: string) {
   room.pairs = pairs;
   room.round += 1;
   room.status = "paired";
-  saveRoomMemory(memory);
-
-  return getHostRoomView(room.code, token);
+      return makeHostRoomView(room, token);
+    },
+    { save: true }
+  );
 }
 
-export function markFindTaPairComplete(code: string, participantId: string) {
-  const room = getRoomOrThrow(code);
-  const pair = getPairForParticipant(room, participantId);
+export async function markFindTaPairComplete(code: string, participantId: string) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const pair = getPairForParticipant(room, participantId);
 
   if (!pair) {
     throw new FindTaRoomError("还没有找到你的分组结果，请等待主持人开始分组。");
@@ -896,18 +1018,21 @@ export function markFindTaPairComplete(code: string, participantId: string) {
     pair.completedAt = pair.completedAt ?? new Date().toISOString();
   }
 
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, participantId);
+      return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
 }
 
-export function submitFindTaCommonChallenge(
+export async function submitFindTaCommonChallenge(
   code: string,
   participantId: string,
   input: Partial<FindTaCommonChallengeInput>
 ) {
-  const room = getRoomOrThrow(code);
-  const pair = getPairForParticipant(room, participantId);
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const pair = getPairForParticipant(room, participantId);
 
   if (!pair) {
     throw new FindTaRoomError("还没有找到你的分组结果，请等待主持人开始分组。");
@@ -934,14 +1059,17 @@ export function submitFindTaCommonChallenge(
     submittedBy: participantId
   };
 
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, participantId);
+      return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
 }
 
-export function confirmFindTaCommonChallenge(code: string, participantId: string) {
-  const room = getRoomOrThrow(code);
-  const pair = getPairForParticipant(room, participantId);
+export async function confirmFindTaCommonChallenge(code: string, participantId: string) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const pair = getPairForParticipant(room, participantId);
 
   if (!pair) {
     throw new FindTaRoomError("还没有找到你的分组结果，请等待主持人开始分组。");
@@ -964,18 +1092,21 @@ export function confirmFindTaCommonChallenge(code: string, participantId: string
     pair.commonChallenge.completedAt = pair.commonChallenge.completedAt ?? new Date().toISOString();
   }
 
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, participantId);
+      return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
 }
 
-export function submitFindTaHarmonyChallenge(
+export async function submitFindTaHarmonyChallenge(
   code: string,
   participantId: string,
   input: { answers?: unknown }
 ) {
-  const room = getRoomOrThrow(code);
-  const pair = getPairForParticipant(room, participantId);
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const pair = getPairForParticipant(room, participantId);
 
   if (!pair) {
     throw new FindTaRoomError("还没有找到你的分组结果，请等待主持人开始分组。");
@@ -1003,18 +1134,21 @@ export function submitFindTaHarmonyChallenge(
     pair.harmonyChallenge.completedAt = pair.harmonyChallenge.completedAt ?? new Date().toISOString();
   }
 
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, participantId);
+      return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
 }
 
-export function submitFindTaExplorationChallenge(
+export async function submitFindTaExplorationChallenge(
   code: string,
   participantId: string,
   input: { caption?: unknown; photoDataUrl?: unknown }
 ) {
-  const room = getRoomOrThrow(code);
-  const pair = getPairForParticipant(room, participantId);
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      const pair = getPairForParticipant(room, participantId);
 
   if (!pair) {
     throw new FindTaRoomError("还没有找到你的分组结果，请等待主持人开始分组。");
@@ -1037,14 +1171,17 @@ export function submitFindTaExplorationChallenge(
     submittedBy: participantId
   };
 
-  saveRoomMemory(memory);
-
-  return getParticipantView(room.code, participantId);
+      return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
 }
 
-export function markFindTaScripturePuzzleComplete(code: string, token: string, pairId: string) {
-  const room = getRoomOrThrow(code);
-  requireHost(room, token);
+export async function markFindTaScripturePuzzleComplete(code: string, token: string, pairId: string) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      requireHost(room, token);
 
   const pair = room.pairs.find((item) => item.id === pairId);
 
@@ -1063,9 +1200,10 @@ export function markFindTaScripturePuzzleComplete(code: string, token: string, p
   pair.scripturePuzzle.completed = true;
   pair.scripturePuzzle.completedAt = pair.scripturePuzzle.completedAt ?? new Date().toISOString();
 
-  saveRoomMemory(memory);
-
-  return getHostRoomView(room.code, token);
+      return makeHostRoomView(room, token);
+    },
+    { save: true }
+  );
 }
 
 function csvCell(value: unknown) {
@@ -1078,9 +1216,10 @@ function csvRow(values: unknown[]) {
   return values.map(csvCell).join(",");
 }
 
-export function exportFindTaRoomCsv(code: string, token: string) {
-  const room = getRoomOrThrow(code);
-  requireHost(room, token);
+export async function exportFindTaRoomCsv(code: string, token: string) {
+  return withRoomMemory((nextMemory) => {
+    const room = getRoomOrThrow(nextMemory, code);
+    requireHost(room, token);
 
   const rows: string[] = [];
   const participants = Object.values(room.participants).sort((left, right) =>
@@ -1197,7 +1336,8 @@ export function exportFindTaRoomCsv(code: string, token: string) {
       );
     });
 
-  return rows.join("\n");
+    return rows.join("\n");
+  });
 }
 
 export function isProfileField(name: string): name is keyof FindTaProfileFields {

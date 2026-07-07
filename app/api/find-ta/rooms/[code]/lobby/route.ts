@@ -14,7 +14,7 @@ export async function GET(_request: Request, props: LobbyRouteProps) {
   try {
     const params = await props.params;
 
-    return NextResponse.json(getFindTaLobbyView(params.code));
+    return NextResponse.json(await getFindTaLobbyView(params.code));
   } catch (error) {
     return findTaApiError(error);
   }

@@ -22,10 +22,10 @@ export async function POST(request: Request, props: CommonChallengeRouteProps) {
     const body = (await request.json()) as CommonChallengeRequest;
 
     if (body.action === "confirm") {
-      return NextResponse.json(confirmFindTaCommonChallenge(params.code, params.participantId));
+      return NextResponse.json(await confirmFindTaCommonChallenge(params.code, params.participantId));
     }
 
-    return NextResponse.json(submitFindTaCommonChallenge(params.code, params.participantId, body));
+    return NextResponse.json(await submitFindTaCommonChallenge(params.code, params.participantId, body));
   } catch (error) {
     return findTaApiError(error);
   }

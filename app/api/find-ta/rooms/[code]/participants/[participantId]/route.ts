@@ -15,7 +15,7 @@ export async function GET(_request: Request, props: ParticipantRouteProps) {
   try {
     const params = await props.params;
 
-    return NextResponse.json(getParticipantView(params.code, params.participantId));
+    return NextResponse.json(await getParticipantView(params.code, params.participantId));
   } catch (error) {
     return findTaApiError(error);
   }

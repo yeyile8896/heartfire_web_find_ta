@@ -15,7 +15,7 @@ export async function POST(request: Request, props: ParticipantsRouteProps) {
   try {
     const params = await props.params;
     const input = (await request.json()) as Partial<FindTaParticipantInput>;
-    const view = joinFindTaRoom(params.code, input);
+    const view = await joinFindTaRoom(params.code, input);
     const origin = new URL(request.url).origin;
 
     return NextResponse.json({

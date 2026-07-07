@@ -15,7 +15,7 @@ export async function POST(_request: Request, props: CompleteRouteProps) {
   try {
     const params = await props.params;
 
-    return NextResponse.json(markFindTaPairComplete(params.code, params.participantId));
+    return NextResponse.json(await markFindTaPairComplete(params.code, params.participantId));
   } catch (error) {
     return findTaApiError(error);
   }

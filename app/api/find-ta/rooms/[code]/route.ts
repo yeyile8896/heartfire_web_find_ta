@@ -14,7 +14,7 @@ export async function GET(_request: Request, props: RoomRouteProps) {
   try {
     const params = await props.params;
 
-    return NextResponse.json(getRoomSummary(params.code));
+    return NextResponse.json(await getRoomSummary(params.code));
   } catch (error) {
     return findTaApiError(error);
   }
