@@ -101,6 +101,7 @@ const LOCK_TTL_MS = 5000;
 const LOCK_WAIT_MS = 5000;
 const TARGET_PARTICIPANTS = 60;
 const TARGET_GROUP_SIZE = 4;
+const MAX_EXPLORATION_PHOTO_LENGTH = 180_000;
 
 let redisClient: Redis | null | undefined;
 
@@ -651,8 +652,8 @@ function sanitizeExplorationInput(input: { caption?: unknown; photoDataUrl?: unk
     throw new FindTaRoomError("请上传一张探索任务照片。");
   }
 
-  if (photoDataUrl.length > 1_200_000) {
-    throw new FindTaRoomError("照片太大了，请换一张小一点的照片。");
+  if (photoDataUrl.length > MAX_EXPLORATION_PHOTO_LENGTH) {
+    throw new FindTaRoomError("照片太大了，请重新选择一张照片，系统会自动压缩后再提交。");
   }
 
   return {
