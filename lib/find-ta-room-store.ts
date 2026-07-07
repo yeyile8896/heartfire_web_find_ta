@@ -191,12 +191,15 @@ function getRedisClient() {
     return redisClient;
   }
 
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_REST_KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN;
+
+  if (!url || !token) {
     redisClient = null;
     return redisClient;
   }
 
-  redisClient = Redis.fromEnv();
+  redisClient = new Redis({ token, url });
   return redisClient;
 }
 
@@ -223,7 +226,7 @@ async function saveRoomMemory(nextMemory: RoomMemory) {
   }
 
   if (process.env.VERCEL === "1") {
-    throw new Error("Find TA persistent storage is not configured. Add Upstash Redis environment variables.");
+    throw new Error("Find TA persistent storage is not configured. Add Upstash Redis REST environment variables.");
   }
 
   mkdirSync(ROOM_DATA_DIR, { recursive: true });

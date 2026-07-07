@@ -17,6 +17,13 @@ UPSTASH_REDIS_REST_URL=<upstash-rest-url>
 UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
 ```
 
+Vercel Marketplace may generate prefixed variables instead. The app also supports:
+
+```text
+UPSTASH_REDIS_REST_KV_REST_API_URL=<upstash-rest-url>
+UPSTASH_REDIS_REST_KV_REST_API_TOKEN=<upstash-rest-token>
+```
+
 Optional:
 
 ```text
