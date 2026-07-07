@@ -1,9 +1,8 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Camera,
   CheckCircle2,
   Clock3,
   Handshake,
@@ -35,81 +34,6 @@ async function readJson<T>(response: Response): Promise<T> {
   }
 
   return data as T;
-}
-
-const EXPLORATION_PHOTO_MAX_LENGTH = 120_000;
-const EXPLORATION_PHOTO_MAX_SIDE = 640;
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onerror = () => reject(new Error("照片读取失败，请重新选择一张照片。"));
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("照片读取失败，请重新选择一张照片。"));
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImage(dataUrl: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-
-    image.onerror = () => reject(new Error("这张照片暂时无法处理，请换一张 JPG 或 PNG 照片。"));
-    image.onload = () => resolve(image);
-    image.src = dataUrl;
-  });
-}
-
-async function compressExplorationPhoto(file: File) {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("请上传图片格式的照片。");
-  }
-
-  const originalDataUrl = await readFileAsDataUrl(file);
-
-  if (originalDataUrl.length <= EXPLORATION_PHOTO_MAX_LENGTH) {
-    return originalDataUrl;
-  }
-
-  const image = await loadImage(originalDataUrl);
-  const scale = Math.min(1, EXPLORATION_PHOTO_MAX_SIDE / Math.max(image.width, image.height));
-  let width = Math.max(1, Math.round(image.width * scale));
-  let height = Math.max(1, Math.round(image.height * scale));
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    throw new Error("浏览器暂时无法压缩照片，请换一张小一点的照片。");
-  }
-
-  const qualities = [0.72, 0.62, 0.52, 0.42, 0.34];
-
-  for (let pass = 0; pass < 4; pass += 1) {
-    canvas.width = width;
-    canvas.height = height;
-    context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-
-    for (const quality of qualities) {
-      const compressed = canvas.toDataURL("image/jpeg", quality);
-
-      if (compressed.length <= EXPLORATION_PHOTO_MAX_LENGTH) {
-        return compressed;
-      }
-    }
-
-    width = Math.max(1, Math.round(width * 0.8));
-    height = Math.max(1, Math.round(height * 0.8));
-  }
-
-  throw new Error("照片还是太大了，请换一张截图或更小的照片。");
 }
 
 function ClueCard({
@@ -435,31 +359,15 @@ function HarmonyPanel({
 }
 
 function ExplorationPanel({
-  caption,
   challenge,
-  feedback,
   isUnlocked,
-  onCaptionChange,
-  onPhotoChange,
-  onSubmit,
-  photoBusy,
-  photoPreview,
-  task,
-  taskBusy
+  task
 }: {
-  caption: string;
   challenge: FindTaExplorationStatus | null;
-  feedback: string;
   isUnlocked: boolean;
-  onCaptionChange: (value: string) => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  photoBusy: boolean;
-  photoPreview: string;
   task: FindTaExplorationTask | null;
-  taskBusy: boolean;
 }) {
-  const status = !isUnlocked ? "默契后解锁" : challenge?.completed ? "已完成" : "可提交";
+  const status = !isUnlocked ? "默契后解锁" : challenge?.completed ? "已通过" : "找工作人员检查";
 
   return (
     <section className="rounded-[1.25rem] border border-orange-100 bg-white p-5 shadow-card sm:p-6">
@@ -484,63 +392,14 @@ function ExplorationPanel({
         </div>
       ) : challenge?.completed ? (
         <div className="mt-5 grid gap-4">
-          {challenge.photoDataUrl ? (
-            <img
-              alt="探索任务照片"
-              className="max-h-80 w-full rounded-2xl object-cover"
-              src={challenge.photoDataUrl}
-            />
-          ) : null}
           <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800">
-            {challenge.submittedByAlias} 已提交：{challenge.caption}。小队已获得 30 分。
+            {challenge.submittedByAlias} 已确认通过：{challenge.caption}。小队已获得 30 分。
           </div>
         </div>
       ) : (
-        <form className="mt-5 grid gap-5" onSubmit={onSubmit}>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-900">上传任务照片</span>
-            <input
-              accept="image/*"
-              className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm file:mr-3 file:rounded-full file:border-0 file:bg-orange-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#8f2d12]"
-              onChange={onPhotoChange}
-              required
-              type="file"
-            />
-            <span className="mt-2 block text-xs font-semibold leading-5 text-slate-500">
-              系统会自动压缩照片，只保留给工作人员核对的小图。
-            </span>
-          </label>
-          {feedback ? (
-            <div className="rounded-2xl bg-orange-50 p-4 text-sm font-semibold leading-7 text-orange-700">
-              {feedback}
-            </div>
-          ) : null}
-          {photoPreview ? (
-            <img alt="待提交照片预览" className="max-h-72 w-full rounded-2xl object-cover" src={photoPreview} />
-          ) : (
-            <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-orange-200 bg-[#fffaf3] text-orange-300">
-              <Camera className="h-10 w-10" />
-            </div>
-          )}
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-900">任务说明</span>
-            <textarea
-              className="mt-2 min-h-24 w-full resize-y rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm transition placeholder:text-stone-400 focus:border-orange-300 focus:outline-none focus:ring-2 focus:ring-orange-200"
-              onChange={(event) => onCaptionChange(event.target.value)}
-              placeholder="例如：我们找到了工作人员 Sarah，一起在主会场门口完成合照。"
-              required
-              value={caption}
-            />
-          </label>
-          <button
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#8f2d12] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#6f220d] disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
-            disabled={taskBusy || photoBusy}
-            type="submit"
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {photoBusy ? "正在压缩照片" : taskBusy ? "提交中" : "提交探索任务"}
-          </button>
-        </form>
+        <div className="mt-5 rounded-2xl bg-orange-50 p-5 text-sm font-semibold leading-7 text-orange-800">
+          完成这个线下任务后，请全队带着结果去找工作人员检查。工作人员确认通过后，会在主持人后台为你们的小队点“通过”，系统会自动加 30 分并解锁金句拼图。
+        </div>
       )}
     </section>
   );
@@ -781,10 +640,6 @@ export function FindTaParticipantView({
   const normalizedRoomCode = roomCode.trim().toUpperCase();
   const [answers, setAnswers] = useState<FindTaHarmonyAnswerMap>({});
   const [busy, setBusy] = useState(false);
-  const [explorationCaption, setExplorationCaption] = useState("");
-  const [explorationFeedback, setExplorationFeedback] = useState("");
-  const [explorationPhoto, setExplorationPhoto] = useState("");
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [commonPoints, setCommonPoints] = useState([""]);
   const [differences, setDifferences] = useState([""]);
   const [message, setMessage] = useState("");
@@ -819,15 +674,6 @@ export function FindTaParticipantView({
 
     setAnswers(view.harmonyChallenge.selfAnswers);
   }, [view?.harmonyChallenge?.selfSubmitted]);
-
-  useEffect(() => {
-    if (!view?.explorationChallenge) {
-      return;
-    }
-
-    setExplorationCaption(view.explorationChallenge.caption);
-    setExplorationPhoto(view.explorationChallenge.photoDataUrl);
-  }, [view?.explorationChallenge?.completedAt]);
 
   async function loadView(quiet = false) {
     try {
@@ -956,77 +802,6 @@ export function FindTaParticipantView({
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "默契测试提交失败。");
-    } finally {
-      setTaskBusy(false);
-    }
-  }
-
-  async function handleExplorationPhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      setExplorationPhoto("");
-      setExplorationFeedback("");
-      return;
-    }
-
-    try {
-      setPhotoBusy(true);
-      setExplorationFeedback("正在压缩照片，请稍等。");
-      setMessage("");
-
-      const compressedPhoto = await compressExplorationPhoto(file);
-
-      setExplorationPhoto(compressedPhoto);
-      setExplorationFeedback("照片已压缩，可以提交。");
-    } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : "照片处理失败，请换一张照片。";
-
-      setExplorationPhoto("");
-      setExplorationFeedback(nextMessage);
-      setMessage(nextMessage);
-      event.target.value = "";
-    } finally {
-      setPhotoBusy(false);
-    }
-  }
-
-  async function handleExplorationSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    try {
-      setTaskBusy(true);
-      setMessage("");
-      setExplorationFeedback("");
-
-      if (!explorationPhoto) {
-        throw new Error("请先上传探索任务照片。");
-      }
-
-      if (explorationPhoto.length > EXPLORATION_PHOTO_MAX_LENGTH) {
-        throw new Error("照片太大了，请重新选择一张照片，系统会自动压缩后再提交。");
-      }
-
-      setView(
-        await readJson<ParticipantView>(
-          await fetch(`/api/find-ta/rooms/${normalizedRoomCode}/participants/${participantId}/exploration`, {
-            body: JSON.stringify({
-              caption: explorationCaption,
-              photoDataUrl: explorationPhoto
-            }),
-            headers: {
-              "Content-Type": "application/json"
-            },
-            method: "POST"
-          })
-        )
-      );
-      setExplorationFeedback("");
-    } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : "营地探索提交失败。";
-
-      setExplorationFeedback(nextMessage);
-      setMessage(nextMessage);
     } finally {
       setTaskBusy(false);
     }
@@ -1207,17 +982,9 @@ export function FindTaParticipantView({
               />
 
               <ExplorationPanel
-                caption={explorationCaption}
                 challenge={view?.explorationChallenge ?? null}
-                feedback={explorationFeedback}
                 isUnlocked={harmonyCompleted}
-                onCaptionChange={setExplorationCaption}
-                onPhotoChange={(event) => void handleExplorationPhotoChange(event)}
-                onSubmit={(event) => void handleExplorationSubmit(event)}
-                photoBusy={photoBusy}
-                photoPreview={explorationPhoto}
                 task={view?.explorationTask ?? null}
-                taskBusy={taskBusy}
               />
 
               <ScripturePuzzlePanel

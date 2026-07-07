@@ -265,6 +265,33 @@ export function FindTaHostRoom() {
     }
   }
 
+  async function handleExplorationComplete(pairId: string) {
+    if (!roomCode || !hostToken) {
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setMessage("");
+
+      const nextRoom = await readJson<FindTaHostRoomView>(
+        await fetch(`/api/find-ta/rooms/${roomCode}/pairs/${pairId}/exploration`, {
+          body: JSON.stringify({ token: hostToken }),
+          headers: {
+            "Content-Type": "application/json"
+          },
+          method: "POST"
+        })
+      );
+
+      setRoom(nextRoom);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "营地探索通过失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleCopyJoinUrl() {
     if (!joinUrl || !navigator.clipboard) {
       return;
@@ -523,7 +550,7 @@ export function FindTaHostRoom() {
                               {pair.explorationChallenge?.completed
                                 ? `已完成 ${formatTime(pair.explorationChallenge.completedAt)}`
                                 : pair.harmonyChallenge?.completed
-                                  ? "未提交"
+                                  ? "等待工作人员通过"
                                   : "未解锁"}
                             </div>
                             <div>
@@ -542,6 +569,17 @@ export function FindTaHostRoom() {
                                 className="mt-3 max-h-48 w-full rounded-2xl object-cover"
                                 src={pair.explorationChallenge.photoDataUrl}
                               />
+                            ) : null}
+                            {pair.harmonyChallenge?.completed && !pair.explorationChallenge?.completed ? (
+                              <button
+                                className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
+                                disabled={busy}
+                                onClick={() => void handleExplorationComplete(pair.id)}
+                                type="button"
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                确认营地探索通过
+                              </button>
                             ) : null}
                             {pair.explorationChallenge?.completed && !pair.scripturePuzzle.completed ? (
                               <button
