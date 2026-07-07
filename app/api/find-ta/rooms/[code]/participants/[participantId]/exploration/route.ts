@@ -5,14 +5,15 @@ import { submitFindTaExplorationChallenge } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type ExplorationRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
     participantId: string;
-  };
+  }>;
 };
 
-export async function POST(request: Request, { params }: ExplorationRouteProps) {
+export async function POST(request: Request, props: ExplorationRouteProps) {
   try {
+    const params = await props.params;
     const body = (await request.json()) as { caption?: unknown; photoDataUrl?: unknown };
 
     return NextResponse.json(submitFindTaExplorationChallenge(params.code, params.participantId, body));

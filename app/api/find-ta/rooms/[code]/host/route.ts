@@ -5,13 +5,14 @@ import { getHostRoomView } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type HostRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function GET(request: Request, { params }: HostRouteProps) {
+export async function GET(request: Request, props: HostRouteProps) {
   try {
+    const params = await props.params;
     const token = new URL(request.url).searchParams.get("token") ?? "";
 
     return NextResponse.json(getHostRoomView(params.code, token));

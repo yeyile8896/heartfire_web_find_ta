@@ -5,13 +5,15 @@ import { getRoomSummary } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type RoomRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function GET(_request: Request, { params }: RoomRouteProps) {
+export async function GET(_request: Request, props: RoomRouteProps) {
   try {
+    const params = await props.params;
+
     return NextResponse.json(getRoomSummary(params.code));
   } catch (error) {
     return findTaApiError(error);

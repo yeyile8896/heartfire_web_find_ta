@@ -6,13 +6,14 @@ import type { FindTaParticipantInput } from "@/lib/find-ta-types";
 export const dynamic = "force-dynamic";
 
 type ParticipantsRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function POST(request: Request, { params }: ParticipantsRouteProps) {
+export async function POST(request: Request, props: ParticipantsRouteProps) {
   try {
+    const params = await props.params;
     const input = (await request.json()) as Partial<FindTaParticipantInput>;
     const view = joinFindTaRoom(params.code, input);
     const origin = new URL(request.url).origin;

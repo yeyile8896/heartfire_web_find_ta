@@ -97,7 +97,7 @@ declare global {
 }
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const ROOM_DATA_DIR = join(process.cwd(), ".local-data");
+const ROOM_DATA_DIR = process.env.FIND_TA_DATA_DIR || join(process.cwd(), ".local-data");
 const ROOM_DATA_FILE = join(ROOM_DATA_DIR, "find-ta-rooms.json");
 const TARGET_PARTICIPANTS = 60;
 const TARGET_GROUP_SIZE = 4;

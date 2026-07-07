@@ -5,13 +5,15 @@ import { getFindTaLobbyView } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type LobbyRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function GET(_request: Request, { params }: LobbyRouteProps) {
+export async function GET(_request: Request, props: LobbyRouteProps) {
   try {
+    const params = await props.params;
+
     return NextResponse.json(getFindTaLobbyView(params.code));
   } catch (error) {
     return findTaApiError(error);

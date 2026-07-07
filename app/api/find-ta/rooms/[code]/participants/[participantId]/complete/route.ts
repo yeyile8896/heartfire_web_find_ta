@@ -5,14 +5,16 @@ import { markFindTaPairComplete } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type CompleteRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
     participantId: string;
-  };
+  }>;
 };
 
-export async function POST(_request: Request, { params }: CompleteRouteProps) {
+export async function POST(_request: Request, props: CompleteRouteProps) {
   try {
+    const params = await props.params;
+
     return NextResponse.json(markFindTaPairComplete(params.code, params.participantId));
   } catch (error) {
     return findTaApiError(error);

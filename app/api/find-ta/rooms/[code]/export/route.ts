@@ -5,13 +5,14 @@ import { exportFindTaRoomCsv } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type ExportRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function GET(request: Request, { params }: ExportRouteProps) {
+export async function GET(request: Request, props: ExportRouteProps) {
   try {
+    const params = await props.params;
     const token = new URL(request.url).searchParams.get("token") ?? "";
     const csv = exportFindTaRoomCsv(params.code, token);
     const filename = `find-ta-${params.code.toUpperCase()}.csv`;

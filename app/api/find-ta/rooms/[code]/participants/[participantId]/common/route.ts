@@ -6,18 +6,19 @@ import type { FindTaCommonChallengeInput } from "@/lib/find-ta-types";
 export const dynamic = "force-dynamic";
 
 type CommonChallengeRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
     participantId: string;
-  };
+  }>;
 };
 
 type CommonChallengeRequest = Partial<FindTaCommonChallengeInput> & {
   action?: "confirm" | "submit";
 };
 
-export async function POST(request: Request, { params }: CommonChallengeRouteProps) {
+export async function POST(request: Request, props: CommonChallengeRouteProps) {
   try {
+    const params = await props.params;
     const body = (await request.json()) as CommonChallengeRequest;
 
     if (body.action === "confirm") {

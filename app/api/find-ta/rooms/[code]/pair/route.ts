@@ -5,13 +5,14 @@ import { pairFindTaRoom } from "@/lib/find-ta-room-store";
 export const dynamic = "force-dynamic";
 
 type PairRouteProps = {
-  params: {
+  params: Promise<{
     code: string;
-  };
+  }>;
 };
 
-export async function POST(request: Request, { params }: PairRouteProps) {
+export async function POST(request: Request, props: PairRouteProps) {
   try {
+    const params = await props.params;
     const body = (await request.json()) as { token?: string };
 
     return NextResponse.json(pairFindTaRoom(params.code, body.token ?? ""));

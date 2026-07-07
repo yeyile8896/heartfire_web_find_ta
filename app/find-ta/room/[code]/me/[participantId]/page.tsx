@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { FindTaParticipantView } from "@/components/FindTaParticipantView";
 
 type FindTaParticipantPageProps = {
-  params: {
+  params: Promise<{
     code: string;
     participantId: string;
-  };
+  }>;
 };
 
 export const metadata: Metadata = {
@@ -13,6 +13,8 @@ export const metadata: Metadata = {
   description: "查看匿名小队线索，并完成线下会合确认。"
 };
 
-export default function FindTaParticipantPage({ params }: FindTaParticipantPageProps) {
+export default async function FindTaParticipantPage(props: FindTaParticipantPageProps) {
+  const params = await props.params;
+
   return <FindTaParticipantView participantId={params.participantId} roomCode={params.code} />;
 }
