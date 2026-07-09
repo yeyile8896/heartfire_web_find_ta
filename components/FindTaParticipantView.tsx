@@ -1,9 +1,8 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Camera,
   CheckCircle2,
   Clock3,
   Handshake,
@@ -360,27 +359,15 @@ function HarmonyPanel({
 }
 
 function ExplorationPanel({
-  caption,
   challenge,
   isUnlocked,
-  onCaptionChange,
-  onPhotoChange,
-  onSubmit,
-  photoPreview,
-  task,
-  taskBusy
+  task
 }: {
-  caption: string;
   challenge: FindTaExplorationStatus | null;
   isUnlocked: boolean;
-  onCaptionChange: (value: string) => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  photoPreview: string;
   task: FindTaExplorationTask | null;
-  taskBusy: boolean;
 }) {
-  const status = !isUnlocked ? "默契后解锁" : challenge?.completed ? "已完成" : "可提交";
+  const status = !isUnlocked ? "默契后解锁" : challenge?.completed ? "已通过" : "找工作人员检查";
 
   return (
     <section className="rounded-[1.25rem] border border-orange-100 bg-white p-5 shadow-card sm:p-6">
@@ -405,55 +392,14 @@ function ExplorationPanel({
         </div>
       ) : challenge?.completed ? (
         <div className="mt-5 grid gap-4">
-          {challenge.photoDataUrl ? (
-            <img
-              alt="探索任务照片"
-              className="max-h-80 w-full rounded-2xl object-cover"
-              src={challenge.photoDataUrl}
-            />
-          ) : null}
           <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800">
-            {challenge.submittedByAlias} 已提交：{challenge.caption}。小队已获得 30 分。
+            {challenge.submittedByAlias} 已确认通过：{challenge.caption}。小队已获得 30 分。
           </div>
         </div>
       ) : (
-        <form className="mt-5 grid gap-5" onSubmit={onSubmit}>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-900">上传任务照片</span>
-            <input
-              accept="image/*"
-              className="mt-2 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm file:mr-3 file:rounded-full file:border-0 file:bg-orange-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#8f2d12]"
-              onChange={onPhotoChange}
-              required
-              type="file"
-            />
-          </label>
-          {photoPreview ? (
-            <img alt="待提交照片预览" className="max-h-72 w-full rounded-2xl object-cover" src={photoPreview} />
-          ) : (
-            <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-orange-200 bg-[#fffaf3] text-orange-300">
-              <Camera className="h-10 w-10" />
-            </div>
-          )}
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-900">任务说明</span>
-            <textarea
-              className="mt-2 min-h-24 w-full resize-y rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm transition placeholder:text-stone-400 focus:border-orange-300 focus:outline-none focus:ring-2 focus:ring-orange-200"
-              onChange={(event) => onCaptionChange(event.target.value)}
-              placeholder="例如：我们找到了工作人员 Sarah，一起在主会场门口完成合照。"
-              required
-              value={caption}
-            />
-          </label>
-          <button
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#8f2d12] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#6f220d] disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
-            disabled={taskBusy}
-            type="submit"
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            提交探索任务
-          </button>
-        </form>
+        <div className="mt-5 rounded-2xl bg-orange-50 p-5 text-sm font-semibold leading-7 text-orange-800">
+          完成这个线下任务后，请全队带着结果去找工作人员检查。工作人员确认通过后，会在主持人后台为你们的小队点“通过”，系统会自动加 30 分并解锁金句拼图。
+        </div>
       )}
     </section>
   );
@@ -694,8 +640,6 @@ export function FindTaParticipantView({
   const normalizedRoomCode = roomCode.trim().toUpperCase();
   const [answers, setAnswers] = useState<FindTaHarmonyAnswerMap>({});
   const [busy, setBusy] = useState(false);
-  const [explorationCaption, setExplorationCaption] = useState("");
-  const [explorationPhoto, setExplorationPhoto] = useState("");
   const [commonPoints, setCommonPoints] = useState([""]);
   const [differences, setDifferences] = useState([""]);
   const [message, setMessage] = useState("");
@@ -730,15 +674,6 @@ export function FindTaParticipantView({
 
     setAnswers(view.harmonyChallenge.selfAnswers);
   }, [view?.harmonyChallenge?.selfSubmitted]);
-
-  useEffect(() => {
-    if (!view?.explorationChallenge) {
-      return;
-    }
-
-    setExplorationCaption(view.explorationChallenge.caption);
-    setExplorationPhoto(view.explorationChallenge.photoDataUrl);
-  }, [view?.explorationChallenge?.completedAt]);
 
   async function loadView(quiet = false) {
     try {
@@ -867,49 +802,6 @@ export function FindTaParticipantView({
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "默契测试提交失败。");
-    } finally {
-      setTaskBusy(false);
-    }
-  }
-
-  function handleExplorationPhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      setExplorationPhoto("");
-      return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      setExplorationPhoto(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function handleExplorationSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    try {
-      setTaskBusy(true);
-      setMessage("");
-      setView(
-        await readJson<ParticipantView>(
-          await fetch(`/api/find-ta/rooms/${normalizedRoomCode}/participants/${participantId}/exploration`, {
-            body: JSON.stringify({
-              caption: explorationCaption,
-              photoDataUrl: explorationPhoto
-            }),
-            headers: {
-              "Content-Type": "application/json"
-            },
-            method: "POST"
-          })
-        )
-      );
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "营地探索提交失败。");
     } finally {
       setTaskBusy(false);
     }
@@ -1090,15 +982,9 @@ export function FindTaParticipantView({
               />
 
               <ExplorationPanel
-                caption={explorationCaption}
                 challenge={view?.explorationChallenge ?? null}
                 isUnlocked={harmonyCompleted}
-                onCaptionChange={setExplorationCaption}
-                onPhotoChange={handleExplorationPhotoChange}
-                onSubmit={(event) => void handleExplorationSubmit(event)}
-                photoPreview={explorationPhoto}
                 task={view?.explorationTask ?? null}
-                taskBusy={taskBusy}
               />
 
               <ScripturePuzzlePanel

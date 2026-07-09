@@ -101,6 +101,7 @@ const LOCK_TTL_MS = 5000;
 const LOCK_WAIT_MS = 5000;
 const TARGET_PARTICIPANTS = 60;
 const TARGET_GROUP_SIZE = 4;
+const MAX_EXPLORATION_PHOTO_LENGTH = 180_000;
 
 let redisClient: Redis | null | undefined;
 
@@ -525,7 +526,7 @@ function toExplorationChallengeView(pair: PairRecord, room: RoomRecord): FindTaE
     completed: challenge.completed,
     completedAt: challenge.completedAt,
     photoDataUrl: challenge.photoDataUrl,
-    submittedByAlias: room.participants[challenge.submittedBy]?.alias ?? "匿名队友",
+    submittedByAlias: room.participants[challenge.submittedBy]?.alias ?? "工作人员",
     task: getPairExplorationTask(pair)
   };
 }
@@ -651,8 +652,8 @@ function sanitizeExplorationInput(input: { caption?: unknown; photoDataUrl?: unk
     throw new FindTaRoomError("请上传一张探索任务照片。");
   }
 
-  if (photoDataUrl.length > 1_200_000) {
-    throw new FindTaRoomError("照片太大了，请换一张小一点的照片。");
+  if (photoDataUrl.length > MAX_EXPLORATION_PHOTO_LENGTH) {
+    throw new FindTaRoomError("照片太大了，请重新选择一张照片，系统会自动压缩后再提交。");
   }
 
   return {
@@ -1175,6 +1176,40 @@ export async function submitFindTaExplorationChallenge(
   };
 
       return makeParticipantView(room, participantId);
+    },
+    { save: true }
+  );
+}
+
+export async function markFindTaExplorationComplete(code: string, token: string, pairId: string) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      requireHost(room, token);
+
+      const pair = room.pairs.find((item) => item.id === pairId);
+
+      if (!pair) {
+        throw new FindTaRoomError("没有找到这个小队。", 404);
+      }
+
+      if (!pair.harmonyChallenge?.completed) {
+        throw new FindTaRoomError("请先完成默契测试，再通过营地探索。");
+      }
+
+      if (pair.explorationChallenge?.completed) {
+        throw new FindTaRoomError("营地探索已经通过。");
+      }
+
+      pair.explorationChallenge = {
+        caption: "工作人员现场检查通过",
+        completed: true,
+        completedAt: new Date().toISOString(),
+        photoDataUrl: "",
+        submittedBy: "__staff__"
+      };
+
+      return makeHostRoomView(room, token);
     },
     { save: true }
   );
