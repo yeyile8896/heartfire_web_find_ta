@@ -51,6 +51,8 @@ export type FindTaLobbyLeaderboardEntry = {
   rank: number;
   score: number;
   status:
+    | "气球完成"
+    | "气球记录"
     | "共同点完成"
     | "任务中"
     | "寻找中"
@@ -149,7 +151,26 @@ export type FindTaScripturePuzzleStatus = {
   isWinner: boolean;
 };
 
+export type FindTaBalloonResult = {
+  alias: string;
+  participantId: string;
+  passed: boolean;
+  score: number;
+  seconds: number;
+};
+
+export type FindTaBalloonChallengeStatus = {
+  completed: boolean;
+  completedAt: string | null;
+  passedCount: number;
+  results: FindTaBalloonResult[];
+  score: number;
+  totalCount: number;
+  updatedAt: string | null;
+};
+
 export type FindTaParticipantView = {
+  balloonChallenge: FindTaBalloonChallengeStatus | null;
   commonChallenge: FindTaCommonChallengeStatus | null;
   explorationChallenge: FindTaExplorationStatus | null;
   explorationTask: FindTaExplorationTask | null;
@@ -163,6 +184,7 @@ export type FindTaParticipantView = {
 };
 
 export type FindTaHostPair = FindTaPairStatus & {
+  balloonChallenge: FindTaBalloonChallengeStatus | null;
   commonChallenge: Omit<FindTaCommonChallengeStatus, "selfConfirmed" | "selfSubmitted"> | null;
   explorationChallenge: FindTaExplorationStatus | null;
   explorationTask: FindTaExplorationTask;

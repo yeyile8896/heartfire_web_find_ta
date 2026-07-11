@@ -15,6 +15,7 @@ import { Container } from "@/components/Container";
 import { FindTaRoomFrame } from "@/components/FindTaRoomFrame";
 import { StatusPill } from "@/components/FindTaRoomFields";
 import type {
+  FindTaBalloonChallengeStatus,
   FindTaCommonChallengeStatus,
   FindTaExplorationStatus,
   FindTaExplorationTask,
@@ -388,7 +389,7 @@ function ExplorationPanel({
 
       {!isUnlocked ? (
         <div className="mt-5 rounded-2xl bg-white p-4 text-sm font-semibold leading-7 text-slate-700">
-          小队完成默契测试后，这里会开放照片上传。
+          小队完成默契测试后，这里会开放线下探索任务。
         </div>
       ) : challenge?.completed ? (
         <div className="mt-5 grid gap-4">
@@ -491,7 +492,101 @@ function ScripturePuzzlePanel({
   );
 }
 
+function BalloonChallengePanel({
+  challenge,
+  isUnlocked
+}: {
+  challenge: FindTaBalloonChallengeStatus | null;
+  isUnlocked: boolean;
+}) {
+  const status = !isUnlocked
+    ? "拼图后解锁"
+    : challenge?.completed
+      ? "已通关"
+      : challenge
+        ? "已记录"
+        : "线下挑战";
+
+  return (
+    <section className="rounded-[1.25rem] border border-orange-100 bg-white p-5 shadow-card sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold tracking-[0.16em] text-[#9a4a1f]">小队任务 5</p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">气球不落地挑战</h2>
+        </div>
+        <StatusPill tone={challenge?.completed ? "emerald" : isUnlocked ? "amber" : "slate"}>{status}</StatusPill>
+      </div>
+
+      <div className="mt-5 grid gap-4">
+        <div className="rounded-2xl bg-[#fff8ef] p-5">
+          <p className="font-semibold text-slate-950">挑战目标</p>
+          <p className="mt-2 text-sm font-semibold leading-7 text-slate-700">
+            每位成员依次挑战，让 3 个气球同时保持在空中。可以用身体任何部位碰气球，但不能抓住、夹住或固定气球。
+          </p>
+        </div>
+
+        {!isUnlocked ? (
+          <div className="rounded-2xl bg-white p-4 text-sm font-semibold leading-7 text-slate-700">
+            小队完成金句拼图后，这里会开放气球挑战说明。
+          </div>
+        ) : challenge ? (
+          <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800">
+            已记录气球挑战成绩：{challenge.passedCount}/{challenge.totalCount} 人达到 20 秒，小队获得{" "}
+            {challenge.score} 分。
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-orange-50 p-4 text-sm font-semibold leading-7 text-orange-800">
+            请用手机连续录下每位成员的挑战过程，完成后拿给裁判检查。裁判确认后，主持人会在后台输入秒数并自动计分。
+          </div>
+        )}
+
+        {challenge?.results.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {challenge.results.map((result) => (
+              <div className="rounded-2xl bg-[#fff8ef] p-4" key={result.participantId}>
+                <p className="font-semibold text-slate-950">{result.alias}</p>
+                <p className="mt-2 text-sm font-semibold text-slate-700">
+                  {result.seconds} 秒 · {result.score} 分 · {result.passed ? "已达标" : "未达标"}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl bg-[#fff8ef] p-4">
+            <p className="font-semibold text-slate-950">计分方式</p>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold leading-7 text-slate-700">
+              <li>每位成员达到 20 秒，获得 20 分。</li>
+              <li>超过 20 秒后，每完整增加 5 秒，再加 5 分。</li>
+              <li>4 位成员都达到 20 秒，小队才算正式通关。</li>
+            </ul>
+          </div>
+          <div className="rounded-2xl bg-[#fff8ef] p-4">
+            <p className="font-semibold text-slate-950">录像要求</p>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold leading-7 text-slate-700">
+              <li>从挑战开始到结束必须连续拍摄，不能剪辑。</li>
+              <li>画面中应同时拍到挑战者和全部 3 个气球。</li>
+              <li>视频需要清楚显示计时，或由队员在旁边大声计时。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-[#fff8ef] p-4">
+          <p className="font-semibold text-slate-950">结束条件</p>
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold leading-7 text-slate-700">
+            <li>任意一个气球接触地面。</li>
+            <li>气球被抓住、夹住，或固定在墙壁、桌椅等物体上。</li>
+            <li>任意一个气球飞出规定挑战区域。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ScorePanel({
+  balloonChallenge,
   commonChallenge,
   explorationChallenge,
   confirmedCount,
@@ -502,6 +597,7 @@ function ScorePanel({
   scripturePuzzle,
   totalCount
 }: {
+  balloonChallenge: FindTaBalloonChallengeStatus | null;
   commonChallenge: FindTaCommonChallengeStatus | null;
   explorationChallenge: FindTaExplorationStatus | null;
   confirmedCount: number;
@@ -540,6 +636,14 @@ function ScorePanel({
         ? "获胜得分"
         : "已得分"
       : "线下进行";
+  const balloonStatus = !scripturePuzzle?.completed
+    ? "拼图后解锁"
+    : balloonChallenge?.completed
+      ? "已通关"
+      : balloonChallenge
+        ? `${balloonChallenge.passedCount}/${balloonChallenge.totalCount} 达标`
+        : "等待录入";
+  const balloonScore = balloonChallenge?.score ?? 0;
   const scoreItems = [
     {
       active: isCompleted,
@@ -570,6 +674,12 @@ function ScorePanel({
       points: 20,
       status: scriptureStatus,
       title: "金句拼图"
+    },
+    {
+      active: Boolean(balloonChallenge),
+      points: balloonScore,
+      status: balloonStatus,
+      title: "气球挑战"
     }
   ];
   const currentScore =
@@ -577,8 +687,9 @@ function ScorePanel({
     (commonChallenge?.completed ? 20 : 0) +
     (harmonyChallenge?.completed ? 20 : 0) +
     (explorationChallenge?.completed ? 30 : 0) +
-    (scripturePuzzle?.completed ? 20 : 0);
-  const maxScore = scoreItems.reduce((total, item) => total + item.points, 0);
+    (scripturePuzzle?.completed ? 20 : 0) +
+    balloonScore;
+  const maxScore = 100 + balloonScore;
   const progressLabel = isPaired ? `小队确认进度：${confirmedCount}/${totalCount}` : "确认进度：等待分组";
 
   return (
@@ -614,7 +725,9 @@ function ScorePanel({
               key={item.title}
             >
               <p className="font-semibold text-slate-950">{item.title}</p>
-              <p className="text-sm font-semibold text-[#9a4a1f]">+{item.points} 分</p>
+              <p className="text-sm font-semibold text-[#9a4a1f]">
+                {item.title === "气球挑战" && !balloonChallenge ? "按成绩计分" : `+${item.points} 分`}
+              </p>
               <span
                 className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
                   item.active ? "bg-emerald-100 text-emerald-700" : "bg-white text-slate-600"
@@ -815,6 +928,7 @@ export function FindTaParticipantView({
   const commonCompleted = Boolean(view?.commonChallenge?.completed);
   const harmonyCompleted = Boolean(view?.harmonyChallenge?.completed);
   const explorationCompleted = Boolean(view?.explorationChallenge?.completed);
+  const scriptureCompleted = Boolean(view?.scripturePuzzle?.completed);
 
   return (
     <FindTaRoomFrame
@@ -947,6 +1061,7 @@ export function FindTaParticipantView({
               )}
 
               <ScorePanel
+                balloonChallenge={view?.balloonChallenge ?? null}
                 commonChallenge={view?.commonChallenge ?? null}
                 explorationChallenge={view?.explorationChallenge ?? null}
                 confirmedCount={confirmedCount}
@@ -990,6 +1105,11 @@ export function FindTaParticipantView({
               <ScripturePuzzlePanel
                 isUnlocked={explorationCompleted}
                 puzzle={view?.scripturePuzzle ?? null}
+              />
+
+              <BalloonChallengePanel
+                challenge={view?.balloonChallenge ?? null}
+                isUnlocked={scriptureCompleted}
               />
 
               <div className="rounded-[1.25rem] border border-orange-100 bg-white p-5 shadow-card sm:p-6">

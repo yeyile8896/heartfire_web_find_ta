@@ -47,7 +47,7 @@ const copy = {
       generate: "生成我的 QR",
       reset: "重新填写"
     },
-    checklist: ["填写匿名线索", "进入活动房间", "查看队友线索", "线下找到小队并完成任务"],
+    checklist: ["填写匿名线索", "进入活动房间", "查看队友线索", "线下找到小队", "完成气球挑战并由裁判录入"],
     fields: {
       alias: "匿名代号",
       code: "确认暗号",
@@ -81,7 +81,13 @@ const copy = {
       generate: "Generate My QR",
       reset: "Reset"
     },
-    checklist: ["Fill anonymous clues", "Join the activity room", "View teammate clues", "Find the team and complete missions"],
+    checklist: [
+      "Fill anonymous clues",
+      "Join the activity room",
+      "View teammate clues",
+      "Find the team",
+      "Complete the balloon challenge with judge scoring"
+    ],
     fields: {
       alias: "Anonymous Code",
       code: "Code Phrase",
@@ -237,7 +243,7 @@ export function FindTaExperience({ lang }: { lang: Language }) {
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [formMessage, setFormMessage] = useState("");
-  const [tasks, setTasks] = useState([false, false, false, false]);
+  const [tasks, setTasks] = useState([false, false, false, false, false]);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -349,7 +355,7 @@ export function FindTaExperience({ lang }: { lang: Language }) {
     setSavedProfile(nextProfile);
     setFormMessage("");
     window.localStorage.setItem(STORAGE_KEY, encodeProfile(nextProfile));
-    setTasks((current) => [true, true, current[2], current[3]]);
+    setTasks((current) => [true, true, current[2], current[3], current[4]]);
   }
 
   async function handleCopy() {
@@ -366,7 +372,7 @@ export function FindTaExperience({ lang }: { lang: Language }) {
     setSavedProfile(null);
     setQrDataUrl("");
     setCopied(false);
-    setTasks([false, false, false, false]);
+    setTasks([false, false, false, false, false]);
     window.localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -546,7 +552,7 @@ export function FindTaExperience({ lang }: { lang: Language }) {
               <div className="flex items-center justify-between gap-4">
                 <h3 className="text-xl font-semibold text-slate-950">{t.taskTitle}</h3>
                 <span className="rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-[#9a4a1f]">
-                  {completedTasks}/4
+                  {completedTasks}/5
                 </span>
               </div>
               <div className="mt-5 grid gap-3">

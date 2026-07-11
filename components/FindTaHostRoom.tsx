@@ -18,7 +18,7 @@ import {
 import { Container } from "@/components/Container";
 import { FindTaRoomFrame } from "@/components/FindTaRoomFrame";
 import { StatusPill } from "@/components/FindTaRoomFields";
-import type { FindTaHostRoomView } from "@/lib/find-ta-types";
+import type { FindTaHostPair, FindTaHostRoomView } from "@/lib/find-ta-types";
 
 type CreatedRoomResponse = FindTaHostRoomView & {
   hostUrl: string;
@@ -26,6 +26,8 @@ type CreatedRoomResponse = FindTaHostRoomView & {
 };
 
 const HOST_STORAGE_KEY = "heartfire-find-ta-host-room";
+
+type BalloonInputState = Record<string, Record<string, string>>;
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -58,6 +60,7 @@ export function FindTaHostRoom() {
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [room, setRoom] = useState<FindTaHostRoomView | null>(null);
   const [roomCode, setRoomCode] = useState("");
+  const [balloonInputs, setBalloonInputs] = useState<BalloonInputState>({});
 
   const completedPairCount = useMemo(
     () => room?.pairs.filter((pair) => pair.completed).length ?? 0,
@@ -287,6 +290,67 @@ export function FindTaHostRoom() {
       setRoom(nextRoom);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "营地探索通过失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateBalloonInput(pairId: string, participantId: string, value: string) {
+    setBalloonInputs((current) => ({
+      ...current,
+      [pairId]: {
+        ...(current[pairId] ?? {}),
+        [participantId]: value
+      }
+    }));
+  }
+
+  function getBalloonInputValue(pair: FindTaHostPair, participantId: string) {
+    const typedValue = balloonInputs[pair.id]?.[participantId];
+
+    if (typedValue !== undefined) {
+      return typedValue;
+    }
+
+    const existingResult = pair.balloonChallenge?.results.find((result) => result.participantId === participantId);
+
+    return existingResult ? String(existingResult.seconds) : "";
+  }
+
+  async function handleBalloonSubmit(pair: FindTaHostPair) {
+    if (!roomCode || !hostToken) {
+      return;
+    }
+
+    const results = Object.fromEntries(
+      pair.members.map((member) => [member.id, getBalloonInputValue(pair, member.id)])
+    );
+
+    if (Object.values(results).some((value) => value === "")) {
+      setMessage("请填写这组每位队员的气球挑战秒数。");
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setMessage("");
+
+      const nextRoom = await readJson<FindTaHostRoomView>(
+        await fetch(`/api/find-ta/rooms/${roomCode}/pairs/${pair.id}/balloon`, {
+          body: JSON.stringify({
+            results,
+            token: hostToken
+          }),
+          headers: {
+            "Content-Type": "application/json"
+          },
+          method: "POST"
+        })
+      );
+
+      setRoom(nextRoom);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "气球挑战成绩保存失败。");
     } finally {
       setBusy(false);
     }
@@ -563,6 +627,16 @@ export function FindTaHostRoom() {
                                   ? "等待工作人员检查"
                                   : "未解锁"}
                             </div>
+                            <div>
+                              气球挑战：
+                              {pair.balloonChallenge?.completed
+                                ? `已通关 ${formatTime(pair.balloonChallenge.completedAt)} · ${pair.balloonChallenge.score} 分`
+                                : pair.balloonChallenge
+                                  ? `已记录 ${pair.balloonChallenge.passedCount}/${pair.balloonChallenge.totalCount} 达标 · ${pair.balloonChallenge.score} 分`
+                                  : pair.scripturePuzzle.completed
+                                    ? "等待裁判录入"
+                                    : "未解锁"}
+                            </div>
                             {pair.explorationChallenge?.photoDataUrl ? (
                               <img
                                 alt="探索任务照片"
@@ -591,6 +665,51 @@ export function FindTaHostRoom() {
                                 <CheckCircle2 className="h-4 w-4" />
                                 标记金句拼图完成
                               </button>
+                            ) : null}
+                            {pair.scripturePuzzle.completed ? (
+                              <div className="mt-4 rounded-2xl border border-orange-100 bg-[#fff8ef] p-4">
+                                <p className="font-semibold text-slate-950">气球不落地挑战成绩</p>
+                                <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">
+                                  裁判确认视频后输入秒数。每人 20 秒得 20 分，超过后每完整 5 秒加 5 分；4
+                                  人都达到 20 秒，小队才算通关。
+                                </p>
+                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                  {pair.members.map((member) => {
+                                    const result = pair.balloonChallenge?.results.find(
+                                      (item) => item.participantId === member.id
+                                    );
+
+                                    return (
+                                      <label className="block rounded-2xl bg-white p-3 shadow-sm" key={member.id}>
+                                        <span className="text-xs font-semibold text-slate-600">
+                                          {member.realName}
+                                          {result ? ` · ${result.score} 分` : ""}
+                                        </span>
+                                        <input
+                                          className="mt-2 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                                          min="0"
+                                          onChange={(event) =>
+                                            updateBalloonInput(pair.id, member.id, event.target.value)
+                                          }
+                                          placeholder="秒数"
+                                          step="0.1"
+                                          type="number"
+                                          value={getBalloonInputValue(pair, member.id)}
+                                        />
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                                <button
+                                  className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-fit"
+                                  disabled={busy}
+                                  onClick={() => void handleBalloonSubmit(pair)}
+                                  type="button"
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  保存气球成绩
+                                </button>
+                              </div>
                             ) : null}
                           </div>
                         </article>

@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import type {
+  FindTaBalloonChallengeStatus,
   FindTaCommonChallengeInput,
   FindTaCommonChallengeStatus,
   FindTaExplorationStatus,
@@ -59,7 +60,15 @@ type ScripturePuzzleRecord = {
   completedAt: string | null;
 };
 
+type BalloonChallengeRecord = {
+  completed: boolean;
+  completedAt: string | null;
+  results: Record<string, number>;
+  updatedAt: string;
+};
+
 type PairRecord = {
+  balloonChallenge?: BalloonChallengeRecord;
   completed: boolean;
   completedAt: string | null;
   commonChallenge?: CommonChallengeRecord;
@@ -102,6 +111,10 @@ const LOCK_WAIT_MS = 5000;
 const TARGET_PARTICIPANTS = 60;
 const TARGET_GROUP_SIZE = 4;
 const MAX_EXPLORATION_PHOTO_LENGTH = 180_000;
+const BALLOON_BASE_SECONDS = 20;
+const BALLOON_BASE_SCORE = 20;
+const BALLOON_BONUS_STEP_SECONDS = 5;
+const BALLOON_BONUS_SCORE = 5;
 
 let redisClient: Redis | null | undefined;
 
@@ -394,13 +407,37 @@ function getScripturePuzzleScore(pair: PairRecord) {
   return pair.scripturePuzzle?.completed ? 20 : 0;
 }
 
+function getBalloonMemberScore(seconds: number) {
+  if (seconds < BALLOON_BASE_SECONDS) {
+    return 0;
+  }
+
+  return (
+    BALLOON_BASE_SCORE +
+    Math.floor((seconds - BALLOON_BASE_SECONDS) / BALLOON_BONUS_STEP_SECONDS) * BALLOON_BONUS_SCORE
+  );
+}
+
+function getBalloonScore(pair: PairRecord) {
+  if (!pair.balloonChallenge) {
+    return 0;
+  }
+
+  return pair.memberIds.reduce((total, memberId) => {
+    const seconds = pair.balloonChallenge?.results[memberId] ?? 0;
+
+    return total + getBalloonMemberScore(seconds);
+  }, 0);
+}
+
 function getPairScore(pair: PairRecord) {
   return (
     (pair.completed ? 10 : 0) +
     getCommonChallengeScore(pair) +
     getHarmonyScore(pair) +
     getExplorationScore(pair) +
-    getScripturePuzzleScore(pair)
+    getScripturePuzzleScore(pair) +
+    getBalloonScore(pair)
   );
 }
 
@@ -410,7 +447,8 @@ function getPairCompletedTaskCount(pair: PairRecord) {
     (pair.commonChallenge?.completed ? 1 : 0) +
     (pair.harmonyChallenge?.completed ? 1 : 0) +
     (pair.explorationChallenge?.completed ? 1 : 0) +
-    (pair.scripturePuzzle?.completed ? 1 : 0)
+    (pair.scripturePuzzle?.completed ? 1 : 0) +
+    (pair.balloonChallenge?.completed ? 1 : 0)
   );
 }
 
@@ -539,6 +577,36 @@ function toScripturePuzzleView(pair: PairRecord, room: RoomRecord): FindTaScript
   };
 }
 
+function toBalloonChallengeView(pair: PairRecord, room: RoomRecord): FindTaBalloonChallengeStatus | null {
+  const challenge = pair.balloonChallenge;
+
+  if (!challenge) {
+    return null;
+  }
+
+  const results = pair.memberIds.map((participantId) => {
+    const seconds = challenge.results[participantId] ?? 0;
+
+    return {
+      alias: room.participants[participantId]?.alias ?? "匿名队友",
+      participantId,
+      passed: seconds >= BALLOON_BASE_SECONDS,
+      score: getBalloonMemberScore(seconds),
+      seconds
+    };
+  });
+
+  return {
+    completed: challenge.completed,
+    completedAt: challenge.completedAt,
+    passedCount: results.filter((result) => result.passed).length,
+    results,
+    score: getBalloonScore(pair),
+    totalCount: pair.memberIds.length,
+    updatedAt: challenge.updatedAt
+  };
+}
+
 function toHostParticipant(room: RoomRecord, participant: ParticipantRecord): FindTaHostParticipant {
   const pair = getPairForParticipant(room, participant.id);
 
@@ -662,6 +730,28 @@ function sanitizeExplorationInput(input: { caption?: unknown; photoDataUrl?: unk
   };
 }
 
+function sanitizeBalloonResults(input: unknown, pair: PairRecord) {
+  if (!input || typeof input !== "object") {
+    throw new FindTaRoomError("请填写每位队员的挑战秒数。");
+  }
+
+  const rawResults = input as Record<string, unknown>;
+  const results: Record<string, number> = {};
+
+  for (const memberId of pair.memberIds) {
+    const rawSeconds = rawResults[memberId];
+    const seconds = typeof rawSeconds === "number" ? rawSeconds : Number(rawSeconds);
+
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      throw new FindTaRoomError("请填写每位队员的有效挑战秒数。");
+    }
+
+    results[memberId] = Math.round(seconds * 10) / 10;
+  }
+
+  return results;
+}
+
 function shuffle(values: string[]) {
   const items = [...values];
 
@@ -732,7 +822,7 @@ function makeFindTaLobbyView(room: RoomRecord): FindTaLobbyView {
   const pairedParticipantIds = new Set(room.pairs.flatMap((pair) => pair.memberIds));
   const completedPairs = room.pairs.filter((pair) => pair.completed);
   const puzzleWinnerPairId = getScripturePuzzleWinnerPairId(room);
-  const fullyCompletedPairs = room.pairs.filter((pair) => pair.scripturePuzzle?.completed);
+  const fullyCompletedPairs = room.pairs.filter((pair) => pair.balloonChallenge?.completed);
   const completedParticipantCount = fullyCompletedPairs.reduce((total, pair) => total + pair.memberIds.length, 0);
   const leaderboard = room.pairs
     .map((pair, index) => {
@@ -747,7 +837,11 @@ function makeFindTaLobbyView(room: RoomRecord): FindTaLobbyView {
         label: pair.completed ? members.map((member) => member.alias).join(" / ") : `匿名小队 ${index + 1}`,
         rank: 0,
         score,
-        status: pair.scripturePuzzle?.completed
+        status: pair.balloonChallenge?.completed
+          ? ("气球完成" as const)
+          : pair.balloonChallenge
+          ? ("气球记录" as const)
+          : pair.scripturePuzzle?.completed
           ? (pair.id === puzzleWinnerPairId ? ("拼图获胜" as const) : ("拼图完成" as const))
           : pair.explorationChallenge?.completed
           ? ("探索完成" as const)
@@ -836,6 +930,16 @@ function makeFindTaLobbyView(room: RoomRecord): FindTaLobbyView {
             : `一个小队完成金句拼图，获得 20 分`,
         time: pair.scripturePuzzle?.completedAt ?? room.createdAt,
         type: "task" as const
+      })),
+    ...room.pairs
+      .filter((pair) => pair.balloonChallenge)
+      .map((pair) => ({
+        id: `balloon-${pair.id}`,
+        text: pair.balloonChallenge?.completed
+          ? `一个小队完成气球不落地挑战，获得 ${getBalloonScore(pair)} 分`
+          : `一个小队已记录气球挑战成绩，当前获得 ${getBalloonScore(pair)} 分`,
+        time: pair.balloonChallenge?.completedAt ?? pair.balloonChallenge?.updatedAt ?? room.createdAt,
+        type: "task" as const
       }))
   ]
     .sort((left, right) => right.time.localeCompare(left.time))
@@ -901,6 +1005,7 @@ function makeParticipantView(room: RoomRecord, participantId: string): FindTaPar
     : [];
 
   return {
+    balloonChallenge: pair ? toBalloonChallengeView(pair, room) : null,
     commonChallenge: pair ? toCommonChallengeView(room, pair, participantId) : null,
     explorationChallenge: pair ? toExplorationChallengeView(pair, room) : null,
     explorationTask: pair ? getPairExplorationTask(pair) : null,
@@ -935,6 +1040,7 @@ function makeHostRoomView(room: RoomRecord, token: string): FindTaHostRoomView {
     .map((participant) => toHostParticipant(room, participant));
 
   const pairs: FindTaHostPair[] = room.pairs.map((pair) => ({
+    balloonChallenge: toBalloonChallengeView(pair, room),
     commonChallenge: toCommonChallengeView(room, pair),
     completed: pair.completed,
     completedAt: pair.completedAt,
@@ -1244,6 +1350,44 @@ export async function markFindTaScripturePuzzleComplete(code: string, token: str
   );
 }
 
+export async function saveFindTaBalloonChallenge(
+  code: string,
+  token: string,
+  pairId: string,
+  input: { results?: unknown }
+) {
+  return withRoomMemory(
+    (nextMemory) => {
+      const room = getRoomOrThrow(nextMemory, code);
+      requireHost(room, token);
+
+      const pair = room.pairs.find((item) => item.id === pairId);
+
+      if (!pair) {
+        throw new FindTaRoomError("没有找到这个小队。", 404);
+      }
+
+      if (!pair.scripturePuzzle?.completed) {
+        throw new FindTaRoomError("请先完成金句拼图，再记录气球挑战成绩。");
+      }
+
+      const results = sanitizeBalloonResults(input.results, pair);
+      const completed = pair.memberIds.every((memberId) => results[memberId] >= BALLOON_BASE_SECONDS);
+      const now = new Date().toISOString();
+
+      pair.balloonChallenge = {
+        completed,
+        completedAt: completed ? pair.balloonChallenge?.completedAt ?? now : null,
+        results,
+        updatedAt: now
+      };
+
+      return makeHostRoomView(room, token);
+    },
+    { save: true }
+  );
+}
+
 function csvCell(value: unknown) {
   const text = value === null || value === undefined ? "" : String(value);
 
@@ -1301,16 +1445,22 @@ export async function exportFindTaRoomCsv(code: string, token: string) {
       "默契度",
       "营地探索",
       "探索任务",
-      "金句拼图"
+      "金句拼图",
+      "气球挑战秒数",
+      "气球个人分",
+      "气球小队分",
+      "气球通关"
     ])
   );
   room.pairs.forEach((pair, index) => {
     const score = getPairScore(pair);
     const harmony = toHarmonyChallengeView(pair, room);
     const explorationTask = getPairExplorationTask(pair);
+    const balloon = toBalloonChallengeView(pair, room);
 
     pair.memberIds.forEach((memberId) => {
       const member = room.participants[memberId];
+      const balloonResult = balloon?.results.find((result) => result.participantId === memberId);
 
       if (!member) {
         return;
@@ -1333,7 +1483,11 @@ export async function exportFindTaRoomCsv(code: string, token: string) {
             ? pair.id === getScripturePuzzleWinnerPairId(room)
               ? "获胜"
               : "已完成"
-            : "未完成"
+            : "未完成",
+          balloonResult ? `${balloonResult.seconds} 秒` : "",
+          balloonResult?.score ?? "",
+          balloon?.score ?? "",
+          balloon?.completed ? "已通关" : balloon ? `${balloon.passedCount}/${balloon.totalCount} 达标` : "未记录"
         ])
       );
     });
@@ -1341,10 +1495,26 @@ export async function exportFindTaRoomCsv(code: string, token: string) {
   rows.push(csvRow([]));
 
   rows.push(csvRow(["排行榜"]));
-  rows.push(csvRow(["排名", "小队", "匿名代号", "分数", "已完成任务数", "共同点", "不同点", "探索说明", "金句拼图"]));
+  rows.push(
+    csvRow([
+      "排名",
+      "小队",
+      "匿名代号",
+      "分数",
+      "已完成任务数",
+      "共同点",
+      "不同点",
+      "探索说明",
+      "金句拼图",
+      "气球挑战"
+    ])
+  );
   room.pairs
     .map((pair, index) => ({
       aliases: pair.memberIds.map((memberId) => room.participants[memberId]?.alias).filter(Boolean).join(" / "),
+      balloon: pair.balloonChallenge
+        ? `${pair.balloonChallenge.completed ? "已通关" : "未通关"}，${getBalloonScore(pair)} 分`
+        : "未记录",
       common: pair.commonChallenge?.commonPoints.join("；") ?? "",
       differences: pair.commonChallenge?.differences.join("；") ?? "",
       explorationCaption: pair.explorationChallenge?.caption ?? "",
@@ -1369,7 +1539,8 @@ export async function exportFindTaRoomCsv(code: string, token: string) {
           entry.common,
           entry.differences,
           entry.explorationCaption,
-          entry.puzzle
+          entry.puzzle,
+          entry.balloon
         ])
       );
     });
