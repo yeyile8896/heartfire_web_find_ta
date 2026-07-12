@@ -435,7 +435,7 @@ function ScripturePuzzlePanel({
 
         {!isUnlocked ? (
           <div className="rounded-2xl bg-white p-4 text-sm font-semibold leading-7 text-slate-700">
-            小队完成营地探索后，这里会作为最后一项线下任务开放。
+            小队完成营地探索后，这里会开放下一项线下任务。
           </div>
         ) : puzzle?.completed ? (
           <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold leading-7 text-emerald-800">
